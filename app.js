@@ -897,7 +897,7 @@ async function exportarFicha() {
     doc.setTextColor(...cLight);
     const hoje = new Date().toLocaleDateString('pt-PT');
     const blockCount = Object.keys(voxelMeshes).length;
-    doc.text(`${result.nome}   ·   ${hoje}   ·   ${blockCount} blocos   ·   Pixel3D v1.4 · CICF`,
+    doc.text(`${result.nome}   ·   ${hoje}   ·   ${blockCount} blocos   ·   Pixel3D v1.8 · CICF`,
              ML + 5, Y + 13);
 
     Y += 18;
