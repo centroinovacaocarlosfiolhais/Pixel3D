@@ -749,24 +749,51 @@ async function exportarGIF() {
     mostrarMensagem(`✓ GIF exportado! (${GW}×${GH}px, ${N} frames)`);
 }
 
-// ── Ficha PDF ─────────────────────────────────────────────────
-async function exportarFichaPDF() {
+// ── Ficha PDF (jsPDF, fundo branco, estilo CICF) ──────────────
+async function exportarFicha() {
     if (!window.jspdf) { mostrarMensagem('jsPDF não carregado!', true); return; }
     if (Object.keys(voxelMeshes).length === 0) {
         mostrarMensagem('Sem blocos para exportar!', true); return;
     }
 
-    const nomeParticipante = prompt('O teu nome:');
-    if (nomeParticipante === null) return;
-    const tituloObjeto = prompt('Nome do teu objeto:');
-    if (tituloObjeto === null) return;
+    // ── Modal ──────────────────────────────────────────────────
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)';
+    overlay.innerHTML = `
+      <div style="background:#0f1530;border:2px solid #00ff88;border-radius:16px;padding:36px 40px;
+                  width:370px;box-shadow:0 0 40px rgba(0,255,136,.2);font-family:'Segoe UI',sans-serif;color:#e0e7ff;">
+        <h2 style="color:#00ff88;font-size:17px;letter-spacing:.06em;margin-bottom:22px">📋 Ficha PDF</h2>
+        <label style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#6b7a99;display:block;margin-bottom:5px">Teu nome</label>
+        <input id="fn" type="text" placeholder="Ex: Maria Silva"
+               style="width:100%;padding:9px 13px;background:#1a2040;border:1px solid rgba(0,255,136,.35);border-radius:8px;color:#e0e7ff;font-size:14px;margin-bottom:16px;outline:none;">
+        <label style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#6b7a99;display:block;margin-bottom:5px">Nome do objeto</label>
+        <input id="ft" type="text" placeholder="Ex: Foguetão Espacial"
+               style="width:100%;padding:9px 13px;background:#1a2040;border:1px solid rgba(0,255,136,.35);border-radius:8px;color:#e0e7ff;font-size:14px;margin-bottom:26px;outline:none;">
+        <div style="display:flex;gap:10px">
+          <button id="fc" style="flex:1;padding:11px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:transparent;color:#6b7a99;font-size:13px;cursor:pointer">Cancelar</button>
+          <button id="fo" style="flex:2;padding:11px;border-radius:8px;border:none;background:#00ff88;color:#0a0e27;font-size:13px;font-weight:700;cursor:pointer">Gerar PDF</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    document.getElementById('fn').focus();
+
+    const result = await new Promise(res => {
+        const ok = () => res({ nome: document.getElementById('fn').value.trim() || 'Anónimo',
+                                titulo: document.getElementById('ft').value.trim() || 'O meu modelo' });
+        document.getElementById('fc').onclick = () => res(null);
+        overlay.addEventListener('click', e => { if (e.target === overlay) res(null); });
+        document.getElementById('fo').onclick = ok;
+        document.getElementById('ft').addEventListener('keydown', e => { if (e.key === 'Enter') ok(); });
+    });
+    document.body.removeChild(overlay);
+    if (!result) return;
 
     const btn = document.getElementById('btn-pdf');
-    btn.disabled = true; btn.textContent = '⏳ A gerar PDF…';
-    mostrarMensagem('A gerar PDF (aguarda…)');
+    btn.disabled = true; btn.textContent = '⏳ PDF…';
+    mostrarMensagem('A gerar ficha (aguarda…)');
     await new Promise(r => setTimeout(r, 60));
 
-    // ── Preparar cena ─────────────────────────────────────────
+    // ── Preparar cena ──────────────────────────────────────────
     gridHelper.visible = false; axesHelper.visible = false;
     layerHighlight.visible = false; ghostMesh.visible = false;
     pivotIndicator.visible = false;
@@ -775,177 +802,176 @@ async function exportarFichaPDF() {
     const origW = renderer.domElement.width, origH = renderer.domElement.height;
     const origAspect = camera.aspect, origFov = camera.fov;
     const origPos = camera.position.clone();
+    scene.background = new THREE.Color(0xffffff);   // branco — sem gastar tinteiro
 
     const bounds = getModelBounds();
     const mc = bounds ? bounds.center.clone()
         : new THREE.Vector3(GRID_SIZE/2, GRID_SIZE/4, GRID_SIZE/2);
-
     const cvs = document.createElement('canvas');
     const ctx = cvs.getContext('2d');
 
-    // ── Viewport principal (16:9, ângulo atual do user) ───────
-    const VW = 800, VH = 450, FOV = 50;
+    // ── Imagem principal 16:9 ──────────────────────────────────
+    const VW = 744, VH = 418, FOV = 50;
     renderer.setSize(VW, VH, false);
     camera.aspect = VW/VH; camera.fov = FOV;
     camera.updateProjectionMatrix();
-
     if (bounds) {
-        const dist = fitCamDist(bounds.radius, VW, VH, FOV);
-        const azim = Math.atan2(origPos.z - mc.z, origPos.x - mc.x);
-        camera.position.set(
-            mc.x + Math.cos(azim)*dist,
-            mc.y + bounds.radius*0.55,
-            mc.z + Math.sin(azim)*dist
-        );
+        const d = fitCamDist(bounds.radius, VW, VH, FOV);
+        const az = Math.atan2(origPos.z - mc.z, origPos.x - mc.x);
+        camera.position.set(mc.x + Math.cos(az)*d, mc.y + bounds.radius*.55, mc.z + Math.sin(az)*d);
         camera.lookAt(mc);
     }
-    scene.background = new THREE.Color(0x0a0e27);
     renderer.render(scene, camera);
     cvs.width = VW; cvs.height = VH;
     ctx.drawImage(renderer.domElement, 0, 0);
-    const vpURL = cvs.toDataURL('image/jpeg', 0.92);
+    const vpURL = cvs.toDataURL('image/png');   // PNG — sem artefactos sobre fundo branco
 
     // ── 8 frames de 360° ──────────────────────────────────────
-    const FW = 256, FH = 192, NF = 8;
+    const NF = 8, FW = 220, FH = 165;
     renderer.setSize(FW, FH, false);
-    camera.aspect = FW/FH;
-    camera.updateProjectionMatrix();
+    camera.aspect = FW/FH; camera.updateProjectionMatrix();
     const fd = bounds ? fitCamDist(bounds.radius, FW, FH, FOV) : 22;
-    const fe = mc.y + (bounds ? bounds.radius*0.55 : 6);
+    const fe = mc.y + (bounds ? bounds.radius*.45 : 5);
     cvs.width = FW; cvs.height = FH;
     const frameURLs = [];
     for (let f = 0; f < NF; f++) {
         const ang = (f/NF)*Math.PI*2;
-        camera.position.set(mc.x+Math.cos(ang)*fd, fe, mc.z+Math.sin(ang)*fd);
+        camera.position.set(mc.x + Math.cos(ang)*fd, fe, mc.z + Math.sin(ang)*fd);
         camera.lookAt(mc);
         renderer.render(scene, camera);
         ctx.drawImage(renderer.domElement, 0, 0);
-        frameURLs.push(cvs.toDataURL('image/jpeg', 0.88));
+        frameURLs.push(cvs.toDataURL('image/png'));   // PNG
         await new Promise(r => setTimeout(r, 0));
     }
 
-    // ── Restaurar cena ────────────────────────────────────────
+    // ── Restaurar cena ─────────────────────────────────────────
     renderer.setSize(origW, origH, false);
     camera.aspect = origAspect; camera.fov = origFov;
     camera.updateProjectionMatrix();
     scene.background = origBG; scene.fog = origFog;
     camera.position.copy(origPos); camera.lookAt(cameraTarget);
-    gridHelper.visible = true; axesHelper.visible = true;
-    layerHighlight.visible = true; pivotIndicator.visible = true;
+    gridHelper.visible=true; axesHelper.visible=true;
+    layerHighlight.visible=true; pivotIndicator.visible=true;
 
-    // ── Construir PDF ─────────────────────────────────────────
+    // ── Construir PDF — fundo branco, estilo CICF ──────────────
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const PW = 210, PH = 297, ML = 12, MR = 12;
-    const UW = PW-ML-MR;   // 186mm utilizáveis
+    const PW = 210, PH = 297, ML = 14, MR = 14, UW = PW - ML - MR;
 
-    const cBG    = [10, 14, 39];
-    const cPanel = [15, 21, 52];
-    const cGreen = [0, 255, 136];
-    const cWhite = [255, 255, 255];
-    const cMuted = [107, 122, 153];
+    // Cores
+    const cWhite  = [255, 255, 255];
+    const cDark   = [10,  14,  39 ];   // #0a0e27
+    const cGreen  = [0,   220, 120];   // #00dc78 — um pouco mais escuro para impressão
+    const cMid    = [60,  72,  100];   // subtítulos
+    const cLight  = [140, 150, 175];   // texto secundário
+    const cBorder = [220, 230, 240];   // bordas cinza claras
 
-    // Fundo completo
-    doc.setFillColor(...cBG); doc.rect(0, 0, PW, PH, 'F');
+    // ── CABEÇALHO ──────────────────────────────────────────────
+    // Barra de topo escura (6mm)
+    doc.setFillColor(...cDark); doc.rect(0, 0, PW, 6, 'F');
+    // Linha verde sob a barra
+    doc.setFillColor(...cGreen); doc.rect(0, 5.5, PW, 0.8, 'F');
 
-    // Header
-    doc.setFillColor(...cPanel); doc.rect(0, 0, PW, 30, 'F');
-    doc.setFillColor(...cGreen);
-    doc.rect(0, 0, 3, 30, 'F');          // barra lateral verde
-    doc.rect(0, 29.5, PW, 0.7, 'F');     // linha inferior verde
-    doc.rect(ML+3, 9, 4, 4, 'F');        // badge quadrado
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
-    doc.setTextColor(...cGreen);
-    doc.text('PIXEL3D', ML+10, 15);
+    // Logótipo — "PIXEL3D" grande em verde, à esquerda
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11); doc.setTextColor(...cGreen);
+    doc.text('PIXEL3D', ML, 3.8);
+
+    // "FICHA DE PROJETO" — à direita, branco sobre escuro
     doc.setFontSize(7); doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...cMuted);
-    doc.text('Modelador Voxel 3D', ML+10, 21);
-    doc.text('FICHA DE PROJETO', PW-MR, 12, { align: 'right' });
-    doc.text('Clube de Codigo . CICF', PW-MR, 18, { align: 'right' });
-
-    // Título do objeto
-    const titulo = (tituloObjeto || 'Sem titulo').substring(0, 48);
-    doc.setFontSize(20); doc.setFont('helvetica', 'bold');
     doc.setTextColor(...cWhite);
-    doc.text(titulo, PW/2, 43, { align: 'center' });
+    doc.text('FICHA DE PROJETO', PW - MR, 3.8, { align: 'right' });
 
-    // Nome + data
-    const dateStr = new Date().toLocaleDateString('pt-PT');
-    const nome = (nomeParticipante || '-').trim() || '-';
-    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...cMuted);
-    doc.text(`${nome}   .   ${dateStr}`, PW/2, 52, { align: 'center' });
+    let Y = 11;   // cursor vertical
 
-    // Separador
-    doc.setFillColor(...cGreen); doc.rect(ML, 55.5, UW, 0.4, 'F');
+    // ── TÍTULO DO OBJETO ───────────────────────────────────────
+    // Barra lateral verde
+    doc.setFillColor(...cGreen); doc.rect(ML, Y, 2, 14, 'F');
 
-    // Viewport principal (16:9 → 186 × 104.6mm)
-    const vpH_mm = UW * (VH/VW);
-    doc.setFillColor(...cPanel); doc.rect(ML, 57, UW, vpH_mm, 'F');
-    doc.addImage(vpURL, 'JPEG', ML, 57, UW, vpH_mm);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(20);
+    doc.setTextColor(...cDark);
+    doc.text(result.titulo.substring(0, 46), ML + 5, Y + 8);
 
-    let Y = 57 + vpH_mm + 6;
-
-    // Secção frames 360°
-    doc.setFontSize(7.5); doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...cGreen);
-    doc.text('ANIMACAO 360 GRAUS', ML, Y+3);
-    doc.setFillColor(...cGreen); doc.rect(ML, Y+4.5, UW, 0.3, 'F');
-    Y += 7;
-
-    // 2 linhas × 4 frames
-    const fGap = 2, fCols = 4, fRows = 2;
-    const fw = (UW - (fCols-1)*fGap) / fCols;   // ~45mm
-    const fh = fw * (FH/FW);                      // ~33.75mm
-    for (let row = 0; row < fRows; row++) {
-        for (let col = 0; col < fCols; col++) {
-            const fi = row*fCols+col;
-            const fx = ML + col*(fw+fGap);
-            const fy = Y + row*(fh+fGap);
-            doc.setFillColor(...cPanel); doc.rect(fx, fy, fw, fh, 'F');
-            doc.addImage(frameURLs[fi], 'JPEG', fx, fy, fw, fh);
-            // Frame label (ângulo)
-            doc.setFontSize(5); doc.setTextColor(...cMuted);
-            doc.text(`${Math.round((fi/NF)*360)}°`, fx+fw-1, fy+fh-1, { align: 'right' });
-        }
-    }
-    Y += fRows*(fh+fGap) - fGap + 5;
-
-    // Estatísticas
+    // Metadados em linha
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.setTextColor(...cLight);
+    const hoje = new Date().toLocaleDateString('pt-PT');
     const blockCount = Object.keys(voxelMeshes).length;
-    doc.setFontSize(7.5); doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...cMuted);
-    doc.text(`Blocos: ${blockCount}   .   Grid: 16x16x16   .   PICO-8 (16 cores)`, ML, Y+3);
-    Y += 10;
+    doc.text(`${result.nome}   ·   ${hoje}   ·   ${blockCount} blocos   ·   Pixel3D v1.4 · CICF`,
+             ML + 5, Y + 13);
 
-    // Notas (linhas) se houver espaço
-    const footerY = PH - 14;
-    if (Y + 20 < footerY) {
-        doc.setFontSize(7.5); doc.setFont('helvetica', 'bold');
+    Y += 18;
+
+    // Linha separadora
+    doc.setFillColor(...cBorder); doc.rect(ML, Y, UW, 0.3, 'F');
+    Y += 5;
+
+    // ── IMAGEM PRINCIPAL ───────────────────────────────────────
+    // Label de secção
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
+    doc.setTextColor(...cGreen);
+    doc.text('VISTA 3D', ML, Y + 3);
+    doc.setFillColor(...cGreen); doc.rect(ML + 19, Y + 2.2, UW - 19, 0.25, 'F');
+    Y += 6;
+
+    // Imagem sem borda — fundo branco dispensa moldura
+    const vpHmm = UW * (VH / VW);
+    doc.addImage(vpURL, 'PNG', ML, Y, UW, vpHmm);
+    Y += vpHmm + 6;
+
+    // ── FRAMES 360° ────────────────────────────────────────────
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
+    doc.setTextColor(...cGreen);
+    const rotLabel = `ROTAÇÃO 360°  —  ${NF} FRAMES  (${Math.round(360/NF)}° cada)`;
+    doc.text(rotLabel, ML, Y + 3);
+    const rlW = doc.getTextWidth(rotLabel);
+    doc.setFillColor(...cGreen); doc.rect(ML + rlW + 2, Y + 2.2, UW - rlW - 2, 0.25, 'F');
+    Y += 6;
+
+    const fGap = 2;
+    const fw = (UW - (NF - 1) * fGap) / NF;
+    const fh = fw * (FH / FW);
+    for (let i = 0; i < NF; i++) {
+        const fx = ML + i * (fw + fGap);
+        doc.addImage(frameURLs[i], 'PNG', fx, Y, fw, fh);   // PNG sem borda
+        // Ângulo em baixo à direita de cada frame
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(4.5);
+        doc.setTextColor(...cLight);
+        doc.text(`${Math.round((i / NF) * 360)}°`, fx + fw - 0.8, Y + fh - 0.8, { align: 'right' });
+    }
+    Y += fh + 7;
+
+    // ── SECÇÃO NOTAS (linhas para escrever) ────────────────────
+    const footerTop = PH - 12;
+    if (Y + 14 < footerTop) {
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
         doc.setTextColor(...cGreen);
-        doc.text('NOTAS', ML, Y+3);
-        doc.setFillColor(...cGreen); doc.rect(ML, Y+4.5, UW, 0.3, 'F');
-        Y += 8;
-        doc.setDrawColor(...cMuted); doc.setLineWidth(0.2);
-        while (Y + 7 < footerY) { doc.line(ML, Y+7, ML+UW, Y+7); Y += 7; }
+        doc.text('NOTAS', ML, Y + 3);
+        doc.setFillColor(...cGreen); doc.rect(ML + 14, Y + 2.2, UW - 14, 0.25, 'F');
+        Y += 7;
+        doc.setDrawColor(...cBorder); doc.setLineWidth(0.25);
+        while (Y + 6.5 < footerTop) { doc.line(ML, Y + 6, ML + UW, Y + 6); Y += 7; }
     }
 
-    // Footer
-    doc.setFillColor(...cGreen); doc.rect(0, footerY, PW, 0.5, 'F');
-    doc.setFillColor(...cPanel); doc.rect(0, footerY+0.5, PW, PH-(footerY+0.5), 'F');
-    doc.setFontSize(7.5); doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...cMuted);
-    doc.text(
-        'Pixel3D . Clube de Codigo . Centro de Inovacao Carlos Fiolhais',
-        PW/2, PH-5, { align: 'center' }
-    );
+    // ── RODAPÉ ─────────────────────────────────────────────────
+    doc.setFillColor(...cGreen); doc.rect(0, footerTop - 0.8, PW, 0.8, 'F');
+    doc.setFillColor(...cDark); doc.rect(0, footerTop, PW, PH - footerTop, 'F');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
+    doc.setTextColor(...cLight);
+    doc.text('Pixel3D  ·  Clube de Código  ·  Centro de Inovação Carlos Fiolhais',
+             PW / 2, PH - 4, { align: 'center' });
+    doc.setTextColor(...cGreen);
+    doc.text('centroinovacaocarlosfiolhais.github.io', PW - MR, PH - 4, { align: 'right' });
 
-    const safeTitle = (tituloObjeto||'modelo').toLowerCase().replace(/[^a-z0-9]/g,'_');
+    // ── Guardar ────────────────────────────────────────────────
+    const safeTitle = (result.titulo).toLowerCase().replace(/[^a-z0-9]/gi, '_').substring(0, 40);
     doc.save(`pixel3d_${safeTitle}.pdf`);
 
-    btn.disabled = false; btn.textContent = '📄 Ficha PDF';
-    mostrarMensagem('Ficha PDF exportada!');
+    btn.disabled = false; btn.textContent = '📋 Ficha PDF';
+    mostrarMensagem('✓ Ficha PDF exportada!');
 }
+
+// (função exportarFicha HTML removida — substituída pela versão jsPDF acima)
 
 function exportarTXT() {
     const SYMS = ['·','N','P','V','C','Z','S','B','R','L','A','M','U','I','O','E'];
@@ -1021,347 +1047,6 @@ function animate() {
         camera.lookAt(cameraTarget);
     }
     renderer.render(scene, camera);
-}
-
-// ============================================================
-// EXPORT FICHA PDF
-// ============================================================
-async function exportarFicha() {
-    // ── Modal para recolher nome e título ─────────────────────────────
-    const overlay = document.createElement('div');
-    overlay.style.cssText = `
-        position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;
-        display:flex;align-items:center;justify-content:center;
-        backdrop-filter:blur(6px);
-    `;
-    overlay.innerHTML = `
-        <div style="background:#0f1530;border:2px solid #00ff88;border-radius:16px;
-                    padding:36px 40px;width:380px;box-shadow:0 0 40px rgba(0,255,136,0.2);
-                    font-family:'Segoe UI',sans-serif;color:#e0e7ff;">
-            <h2 style="color:#00ff88;font-size:18px;letter-spacing:.06em;
-                        text-shadow:0 0 12px rgba(0,255,136,.4);margin-bottom:24px">
-                📄 Exportar Ficha PDF
-            </h2>
-            <label style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;
-                           color:#6b7a99;display:block;margin-bottom:6px">
-                Teu Nome
-            </label>
-            <input id="ficha-nome" type="text" placeholder="Ex: Maria Silva"
-                   style="width:100%;padding:10px 14px;background:#1a2040;border:1px solid rgba(0,255,136,.35);
-                          border-radius:8px;color:#e0e7ff;font-size:14px;margin-bottom:18px;outline:none;">
-            <label style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;
-                           color:#6b7a99;display:block;margin-bottom:6px">
-                Nome do Objeto
-            </label>
-            <input id="ficha-titulo" type="text" placeholder="Ex: Foguetão Espacial"
-                   style="width:100%;padding:10px 14px;background:#1a2040;border:1px solid rgba(0,255,136,.35);
-                          border-radius:8px;color:#e0e7ff;font-size:14px;margin-bottom:28px;outline:none;">
-            <div style="display:flex;gap:12px;">
-                <button id="ficha-cancel"
-                        style="flex:1;padding:11px;border-radius:8px;border:1px solid rgba(255,255,255,.15);
-                               background:transparent;color:#6b7a99;font-size:13px;cursor:pointer;">
-                    Cancelar
-                </button>
-                <button id="ficha-ok"
-                        style="flex:2;padding:11px;border-radius:8px;border:none;
-                               background:#00ff88;color:#0a0e27;font-size:13px;font-weight:700;cursor:pointer;">
-                    Gerar PDF
-                </button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(overlay);
-    document.getElementById('ficha-nome').focus();
-
-    const result = await new Promise(resolve => {
-        document.getElementById('ficha-cancel').onclick = () => resolve(null);
-        overlay.addEventListener('click', e => { if (e.target === overlay) resolve(null); });
-        document.getElementById('ficha-ok').onclick = () => resolve({
-            nome: document.getElementById('ficha-nome').value.trim() || 'Anónimo',
-            titulo: document.getElementById('ficha-titulo').value.trim() || 'O meu modelo'
-        });
-        document.getElementById('ficha-titulo').addEventListener('keydown', e => {
-            if (e.key === 'Enter') resolve({
-                nome: document.getElementById('ficha-nome').value.trim() || 'Anónimo',
-                titulo: document.getElementById('ficha-titulo').value.trim() || 'O meu modelo'
-            });
-        });
-    });
-
-    document.body.removeChild(overlay);
-    if (!result) return;
-
-    mostrarMensagem('A gerar ficha PDF…');
-    await new Promise(r => setTimeout(r, 60));
-
-    // ── Guardar estado da cena ────────────────────────────────────────
-    const origW = renderer.domElement.width, origH = renderer.domElement.height;
-    const origBG = scene.background, origFog = scene.fog;
-    const origPos = camera.position.clone();
-    const origFov = camera.fov, origAspect = camera.aspect;
-
-    // ── Calcular centro e distância do modelo ─────────────────────────
-    const keys = Object.keys(voxelMeshes);
-    let center = new THREE.Vector3(GRID_SIZE/2, GRID_SIZE/4, GRID_SIZE/2);
-    let bRadius = 8;
-    if (keys.length > 0) {
-        let mnX=Infinity,mxX=-Infinity,mnY=Infinity,mxY=-Infinity,mnZ=Infinity,mxZ=-Infinity;
-        keys.forEach(k => {
-            const [x,y,z] = k.split(',').map(Number);
-            if(x<mnX)mnX=x; if(x>mxX)mxX=x;
-            if(y<mnY)mnY=y; if(y>mxY)mxY=y;
-            if(z<mnZ)mnZ=z; if(z>mxZ)mxZ=z;
-        });
-        center.set((mnX+mxX)/2+.5,(mnY+mxY)/2+.5,(mnZ+mxZ)/2+.5);
-        const dxz = Math.max(mxX-mnX,mxZ-mnZ)/2+1;
-        const dy  = (mxY-mnY)/2+1;
-        bRadius = Math.sqrt(dxz*dxz+dy*dy);
-    }
-
-    // ── Ocultar helpers ───────────────────────────────────────────────
-    gridHelper.visible = false;
-    axesHelper.visible = false;
-    layerHighlight.visible = false;
-    ghostMesh.visible = false;
-    pivotIndicator.visible = false;
-    scene.fog = null;
-    scene.background = new THREE.Color(0x0a0e27);
-
-    // ── 1. Captura principal (viewport actual, sem helpers) ───────────
-    const MAIN_W = 800, MAIN_H = 600;
-    renderer.setSize(MAIN_W, MAIN_H, false);
-    camera.aspect = MAIN_W / MAIN_H;
-    camera.fov = 50;
-    camera.updateProjectionMatrix();
-
-    const fovHalfRad = (camera.fov/2)*Math.PI/180;
-    const fovHHalfRad = Math.atan(Math.tan(fovHalfRad)*camera.aspect);
-    const dist = (bRadius/Math.sin(Math.min(fovHalfRad,fovHHalfRad)))*1.12;
-    const elev = center.y + bRadius*0.55;
-
-    // Ângulo de 30° para a imagem principal (¾ vista frontal)
-    camera.position.set(center.x+Math.cos(Math.PI/6)*dist, elev, center.z+Math.sin(Math.PI/6)*dist);
-    camera.lookAt(center);
-    renderer.render(scene, camera);
-    const mainCanvas = document.createElement('canvas');
-    mainCanvas.width = MAIN_W; mainCanvas.height = MAIN_H;
-    mainCanvas.getContext('2d').drawImage(renderer.domElement, 0, 0);
-    const mainDataURL = mainCanvas.toDataURL('image/png');
-
-    // ── 2. Captura das 8 frames de rotação (tira de filme) ────────────
-    const NF = 8, FW = 200, FH = 200;
-    renderer.setSize(FW, FH, false);
-    camera.aspect = FW/FH;
-    camera.updateProjectionMatrix();
-
-    const fovHRad2 = (camera.fov/2)*Math.PI/180;
-    const fovHH2   = Math.atan(Math.tan(fovHRad2)*camera.aspect);
-    const dist2 = (bRadius/Math.sin(Math.min(fovHRad2,fovHH2)))*1.12;
-    const elev2 = center.y + bRadius*0.4;
-
-    const frameDataURLs = [];
-    for (let i = 0; i < NF; i++) {
-        const ang = (i/NF)*Math.PI*2;
-        camera.position.set(center.x+Math.cos(ang)*dist2, elev2, center.z+Math.sin(ang)*dist2);
-        camera.lookAt(center);
-        renderer.render(scene, camera);
-        const fc = document.createElement('canvas');
-        fc.width = FW; fc.height = FH;
-        fc.getContext('2d').drawImage(renderer.domElement, 0, 0);
-        frameDataURLs.push(fc.toDataURL('image/png'));
-        await new Promise(r => setTimeout(r, 0));
-    }
-
-    // ── Restaurar estado ───────────────────────────────────────────────
-    renderer.setSize(origW, origH, false);
-    camera.fov = origFov; camera.aspect = origAspect;
-    camera.updateProjectionMatrix();
-    scene.background = origBG; scene.fog = origFog;
-    camera.position.copy(origPos); camera.lookAt(cameraTarget);
-    gridHelper.visible=true; axesHelper.visible=true;
-    layerHighlight.visible=true; pivotIndicator.visible=true;
-
-    // ── 3. Construir HTML da ficha e abrir para impressão ─────────────
-    const hoje = new Date().toLocaleDateString('pt-PT');
-    const framesHTML = frameDataURLs.map((url, i) => `
-        <div class="frame-cell">
-            <img src="${url}" alt="frame ${i+1}">
-            <span class="frame-num">${i+1}</span>
-        </div>
-    `).join('');
-
-    const fichaHTML = `<!DOCTYPE html>
-<html lang="pt">
-<head>
-<meta charset="UTF-8">
-<title>Pixel3D — ${result.titulo}</title>
-<style>
-  @page { size: A4 portrait; margin: 0; }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body {
-    width:210mm; min-height:297mm;
-    font-family:'Segoe UI',Tahoma,sans-serif;
-    background:#fff; color:#0a0e27;
-    -webkit-print-color-adjust:exact; print-color-adjust:exact;
-  }
-
-  /* ── Cabeçalho ── */
-  .header {
-    background:#0a0e27;
-    padding:18px 28px 14px;
-    display:flex; align-items:center; justify-content:space-between;
-  }
-  .header-brand { display:flex; flex-direction:column; gap:2px; }
-  .header-app {
-    font-size:22px; font-weight:800; letter-spacing:.08em;
-    color:#00ff88; text-shadow:0 0 12px rgba(0,255,136,.4);
-  }
-  .header-sub { font-size:9px; color:#6b7a99; letter-spacing:.12em; text-transform:uppercase; }
-  .header-cicf {
-    font-size:10px; color:#6b7a99; letter-spacing:.08em; text-align:right; line-height:1.6;
-  }
-  .header-cicf strong { color:#00ff88; display:block; font-size:11px; }
-
-  /* ── Bloco de título ── */
-  .title-block {
-    padding:20px 28px 16px;
-    border-bottom:2px solid rgba(0,255,136,.18);
-    background:linear-gradient(to right, rgba(0,255,136,.05) 0%, transparent 60%);
-  }
-  .proj-title {
-    font-size:26px; font-weight:800; color:#0a0e27; letter-spacing:.03em;
-    border-left:4px solid #00ff88; padding-left:12px; line-height:1.15;
-  }
-  .meta-row {
-    display:flex; gap:32px; margin-top:10px; padding-left:16px;
-  }
-  .meta-item { display:flex; flex-direction:column; gap:1px; }
-  .meta-label { font-size:8px; letter-spacing:.12em; text-transform:uppercase; color:#6b7a99; }
-  .meta-value { font-size:13px; font-weight:600; color:#0a0e27; }
-
-  /* ── Imagem principal ── */
-  .main-image-wrap {
-    padding:16px 28px 12px;
-    border-bottom:1px solid rgba(0,255,136,.12);
-  }
-  .section-label {
-    font-size:8px; letter-spacing:.14em; text-transform:uppercase;
-    color:#00ff88; font-weight:700; margin-bottom:8px;
-  }
-  .main-image-wrap img {
-    width:100%; border-radius:10px;
-    border:1.5px solid rgba(0,255,136,.25);
-    background:#0a0e27; display:block;
-  }
-
-  /* ── Tira de frames ── */
-  .frames-section { padding:14px 28px 20px; }
-  .frames-grid {
-    display:grid; grid-template-columns:repeat(8,1fr); gap:6px;
-  }
-  .frame-cell {
-    position:relative; border-radius:6px; overflow:hidden;
-    border:1px solid rgba(0,255,136,.2); background:#0a0e27;
-  }
-  .frame-cell img { width:100%; display:block; }
-  .frame-num {
-    position:absolute; bottom:3px; right:5px;
-    font-size:8px; font-weight:700; color:#00ff88;
-    background:rgba(0,0,0,.55); border-radius:3px; padding:1px 4px;
-    letter-spacing:.05em;
-  }
-  .frames-caption {
-    margin-top:8px; font-size:9px; color:#6b7a99;
-    letter-spacing:.06em; text-align:center;
-  }
-
-  /* ── Rodapé ── */
-  .footer {
-    background:#0a0e27; padding:10px 28px;
-    display:flex; justify-content:space-between; align-items:center;
-    position:fixed; bottom:0; width:100%;
-  }
-  .footer-left { font-size:9px; color:#6b7a99; letter-spacing:.06em; }
-  .footer-left strong { color:#00ff88; }
-  .footer-right { font-size:9px; color:#3a4460; }
-  .footer-dots {
-    display:flex; gap:5px;
-  }
-  .footer-dot {
-    width:6px; height:6px; border-radius:50%; background:#00ff88; opacity:.3;
-  }
-  .footer-dot.active { opacity:1; }
-</style>
-</head>
-<body>
-
-<div class="header">
-  <div class="header-brand">
-    <div class="header-app">🧱 PIXEL3D</div>
-    <div class="header-sub">Clube de Código · Modelador Voxel</div>
-  </div>
-  <div class="header-cicf">
-    <strong>CICF</strong>
-    Centro de Inovação Carlos Fiolhais
-  </div>
-</div>
-
-<div class="title-block">
-  <div class="proj-title">${result.titulo}</div>
-  <div class="meta-row">
-    <div class="meta-item">
-      <span class="meta-label">Criado por</span>
-      <span class="meta-value">${result.nome}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-label">Data</span>
-      <span class="meta-value">${hoje}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-label">Blocos</span>
-      <span class="meta-value">${Object.keys(voxelMeshes).length}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-label">Ferramenta</span>
-      <span class="meta-value">Pixel3D v1.3</span>
-    </div>
-  </div>
-</div>
-
-<div class="main-image-wrap">
-  <div class="section-label">Vista 3D do Modelo</div>
-  <img src="${mainDataURL}" alt="Vista 3D">
-</div>
-
-<div class="frames-section">
-  <div class="section-label">Rotação 360° — ${NF} Frames</div>
-  <div class="frames-grid">${framesHTML}</div>
-  <div class="frames-caption">
-    Cada frame representa ${Math.round(360/NF)}° de rotação · Exportado pelo Pixel3D · CICF
-  </div>
-</div>
-
-<div class="footer">
-  <div class="footer-left">
-    <strong>Pixel3D</strong> · Clube de Código · CICF &nbsp;·&nbsp; ${hoje}
-  </div>
-  <div class="footer-dots">
-    <div class="footer-dot active"></div>
-    <div class="footer-dot"></div>
-    <div class="footer-dot"></div>
-  </div>
-  <div class="footer-right">centroinovacaocarlosfiolhais.github.io</div>
-</div>
-
-<script>window.onload = () => { window.print(); }<\/script>
-</body>
-</html>`;
-
-    const blob = new Blob([fichaHTML], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
-    mostrarMensagem('✓ Ficha PDF aberta — usa Ctrl+P / Cmd+P para imprimir');
 }
 
 window.addEventListener('load', init);

@@ -419,10 +419,11 @@
     <div>
         <div class="section-title" style="margin-bottom:8px">Exportar</div>
         <div class="export-grid">
-            <button id="btn-gif" class="exp-btn primary" onclick="exportarGIF()">🎞️ GIF Animado</button>
+            <button id="btn-gif" class="exp-btn primary" onclick="exportarGIF()">🎞️ GIF</button>
+            <button id="btn-pdf" class="exp-btn" onclick="exportarFicha()"
+                style="background:rgba(255,163,0,.08);border-color:rgba(255,163,0,.45);color:#ffa300;">📋 Ficha PDF</button>
             <button class="exp-btn" onclick="exportarPNG()">📸 PNG</button>
-            <button class="exp-btn" onclick="exportarTXT()">📄 Camadas TXT</button>
-            <button id="btn-pdf" class="exp-btn" onclick="exportarFichaPDF()" style="grid-column:span 2;background:rgba(255,163,0,.08);border-color:rgba(255,163,0,.5);color:#ffa300;">📋 Ficha PDF</button>
+            <button class="exp-btn" onclick="exportarTXT()">📄 TXT</button>
         </div>
     </div>
 
