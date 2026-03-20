@@ -596,101 +596,90 @@ async function exportarGIF() {
     mostrarMensagem('A gerar GIF (aguarda…)');
     await new Promise(r => setTimeout(r, 60));
 
-    const RW = 512, RH = 384, N = 36, DELAY = 4;
+    // ── Dimensões fixas — enquadra o plano de desenho completo ──────────
+    const GW = 400, GH = 400, N = 36, DELAY = 4;
     const FOV = 50;
 
+    // ── Guardar estado ──────────────────────────────────────────────────
     const origW = renderer.domElement.width, origH = renderer.domElement.height;
     const origBG = scene.background, origFog = scene.fog;
     const origPos = camera.position.clone();
     const origFov = camera.fov, origAspect = camera.aspect;
 
-    // Ocultar helpers
+    // ── Ocultar helpers ─────────────────────────────────────────────────
     gridHelper.visible = false; axesHelper.visible = false;
     layerHighlight.visible = false; ghostMesh.visible = false;
     pivotIndicator.visible = false;
     scene.fog = null;
 
-    renderer.setSize(RW, RH, false);
-    camera.aspect = RW / RH;
+    renderer.setSize(GW, GH, false);
+    camera.aspect = 1;
     camera.fov = FOV;
     camera.updateProjectionMatrix();
 
-    const bounds = getModelBounds();
-    const gifCenter = bounds ? bounds.center.clone()
-        : new THREE.Vector3(GRID_SIZE/2, GRID_SIZE/4, GRID_SIZE/2);
-    const camDist   = bounds ? fitCamDist(bounds.radius, RW, RH, FOV) : 28;
-    const elevOff   = bounds ? bounds.center.y + bounds.radius * 0.55
-        : GRID_SIZE/4 + 6;
+    // ── Câmera enquadra o plano de desenho completo (grelha 16×16×16) ──
+    // Centro geométrico da grelha: (8, 4, 8) — ligeiramente baixo para ver a base
+    const gridCenter = new THREE.Vector3(GRID_SIZE/2, GRID_SIZE/4, GRID_SIZE/2);
+    // Raio que garante que toda a grelha 16×16×16 é visível a qualquer ângulo
+    const gridRadius = Math.sqrt(
+        (GRID_SIZE/2)**2 + (GRID_SIZE/4)**2 + (GRID_SIZE/2)**2
+    ) * 1.15;
+    const camDist = fitCamDist(gridRadius, GW, GH, FOV);
+    const elevY   = gridCenter.y + gridRadius * 0.45;
 
     const cvs = document.createElement('canvas');
-    cvs.width = RW; cvs.height = RH;
+    cvs.width = GW; cvs.height = GH;
     const ctx = cvs.getContext('2d');
 
-    // ── PASS 1 — Render duplo por frame → máscara de transparência ──────
-    const frameMasks  = [];   // Uint8Array: 1=modelo, 0=fundo/AA
-    const frameColors = [];   // RGBA do render em preto (cores do modelo)
+    // ── PASS 1 — Dual render por frame → máscara alfa ───────────────────
+    // Render em preto + branco → pixeis idênticos = modelo; diferentes = fundo/AA
+    const frameMasks  = [];
+    const frameColors = [];
 
     for (let f = 0; f < N; f++) {
         const ang = (f / N) * Math.PI * 2;
         camera.position.set(
-            gifCenter.x + Math.cos(ang) * camDist,
-            elevOff,
-            gifCenter.z + Math.sin(ang) * camDist
+            gridCenter.x + Math.cos(ang) * camDist,
+            elevY,
+            gridCenter.z + Math.sin(ang) * camDist
         );
-        camera.lookAt(gifCenter);
+        camera.lookAt(gridCenter);
 
-        // Render com fundo preto → cores do modelo
+        // Render fundo preto
         scene.background = new THREE.Color(0, 0, 0);
         renderer.render(scene, camera);
         ctx.drawImage(renderer.domElement, 0, 0);
-        const blackPx = ctx.getImageData(0, 0, RW, RH).data.slice();
+        const blackPx = ctx.getImageData(0, 0, GW, GH).data.slice();
 
-        // Render com fundo branco → deteção de pixeis puros vs AA
+        // Render fundo branco
         scene.background = new THREE.Color(1, 1, 1);
         renderer.render(scene, camera);
         ctx.drawImage(renderer.domElement, 0, 0);
-        const whitePx = ctx.getImageData(0, 0, RW, RH).data;
+        const whitePx = ctx.getImageData(0, 0, GW, GH).data;
 
-        // Máscara: pixel igual nas duas renders → modelo; diferente → fundo/AA
-        const mask = new Uint8Array(RW * RH);
-        for (let i = 0; i < RW * RH; i++) {
-            const dr = Math.abs(blackPx[i*4]   - whitePx[i*4]);
-            const dg = Math.abs(blackPx[i*4+1] - whitePx[i*4+1]);
-            const db = Math.abs(blackPx[i*4+2] - whitePx[i*4+2]);
-            mask[i] = (dr + dg + db < 20) ? 1 : 0;
+        // Máscara: igual nas duas = modelo; diferente = fundo/AA
+        const mask = new Uint8Array(GW * GH);
+        for (let i = 0; i < GW * GH; i++) {
+            const d = Math.abs(blackPx[i*4] - whitePx[i*4])
+                    + Math.abs(blackPx[i*4+1] - whitePx[i*4+1])
+                    + Math.abs(blackPx[i*4+2] - whitePx[i*4+2]);
+            mask[i] = d < 20 ? 1 : 0;
         }
         frameMasks.push(mask);
         frameColors.push(blackPx);
         await new Promise(r => setTimeout(r, 0));
     }
 
-    // ── PASS 2 — Crop: union dos pixeis de modelo em todos os frames ─────
-    let cx1 = RW, cy1 = RH, cx2 = 0, cy2 = 0;
-    for (const mask of frameMasks) {
-        for (let py = 0; py < RH; py++)
-            for (let px = 0; px < RW; px++)
-                if (mask[py*RW+px]) {
-                    if (px < cx1) cx1 = px; if (px > cx2) cx2 = px;
-                    if (py < cy1) cy1 = py; if (py > cy2) cy2 = py;
-                }
-    }
-    const pad = Math.max(4, Math.round(Math.max(cx2-cx1, cy2-cy1) * 0.05));
-    cx1 = Math.max(0, cx1-pad); cy1 = Math.max(0, cy1-pad);
-    cx2 = Math.min(RW-1, cx2+pad); cy2 = Math.min(RH-1, cy2+pad);
-    let GW = Math.max(2, (cx2-cx1+1) & ~1);   // par
-    let GH = Math.max(2, (cy2-cy1+1) & ~1);
-
-    // ── PASS 3 — Paleta adaptativa de 256 cores (só pixeis de modelo) ────
+    // ── PASS 2 — Paleta adaptativa 256 cores (só pixeis de modelo) ──────
     const freqMap = new Map();
     for (let fi = 0; fi < N; fi++) {
         const mask = frameMasks[fi], col = frameColors[fi];
-        for (let py = cy1; py < cy1+GH; py += 3)
-            for (let px = cx1; px < cx1+GW; px += 3)
-                if (mask[py*RW+px]) {
-                    const i = (py*RW+px)*4;
-                    const k = ((col[i]&0xF8)<<16)|((col[i+1]&0xF8)<<8)|(col[i+2]&0xF8);
-                    freqMap.set(k, (freqMap.get(k)||0)+1);
-                }
+        for (let i = 0; i < GW * GH; i += 3) {
+            if (mask[i]) {
+                const k = ((col[i*4]&0xF8)<<16)|((col[i*4+1]&0xF8)<<8)|(col[i*4+2]&0xF8);
+                freqMap.set(k, (freqMap.get(k)||0)+1);
+            }
+        }
     }
     const sorted = [...freqMap.entries()].sort((a,b) => b[1]-a[1]);
     const gifPal = [{ r:0, g:0, b:0 }];   // índice 0 = transparente
@@ -713,21 +702,16 @@ async function exportarGIF() {
         return best;
     }
 
-    // ── PASS 4 — Codificar GIF ────────────────────────────────────────────
+    // ── PASS 3 — Codificar GIF ───────────────────────────────────────────
     const enc = new GIFEncoder();
     const frames = [];
     for (let fi = 0; fi < N; fi++) {
         const mask = frameMasks[fi], col = frameColors[fi];
         const pix = new Uint8Array(GW * GH);
-        for (let py = 0; py < GH; py++)
-            for (let px = 0; px < GW; px++) {
-                const si = (cy1+py)*RW+(cx1+px);
-                if (mask[si]) {
-                    const i = si*4;
-                    pix[py*GW+px] = qColor(col[i], col[i+1], col[i+2]);
-                }
-                // else: 0 = transparente (default da Uint8Array)
-            }
+        for (let i = 0; i < GW * GH; i++) {
+            if (mask[i]) pix[i] = qColor(col[i*4], col[i*4+1], col[i*4+2]);
+            // else: 0 = transparente
+        }
         frames.push({ pixels: pix, delay: DELAY });
     }
 
@@ -737,7 +721,7 @@ async function exportarGIF() {
     a.href = url; a.download = 'pixel3d_' + Date.now() + '.gif'; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
 
-    // Restaurar estado
+    // ── Restaurar estado ─────────────────────────────────────────────────
     renderer.setSize(origW, origH, false);
     camera.fov = origFov; camera.aspect = origAspect;
     camera.updateProjectionMatrix();
@@ -745,7 +729,7 @@ async function exportarGIF() {
     camera.position.copy(origPos); camera.lookAt(cameraTarget);
     gridHelper.visible = true; axesHelper.visible = true;
     layerHighlight.visible = true; pivotIndicator.visible = true;
-    btn.disabled = false; btn.textContent = '🎞️ GIF Animado';
+    btn.disabled = false; btn.textContent = '🎞️ GIF';
     mostrarMensagem(`✓ GIF exportado! (${GW}×${GH}px, ${N} frames)`);
 }
 
