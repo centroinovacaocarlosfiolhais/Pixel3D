@@ -596,87 +596,70 @@ async function exportarGIF() {
     mostrarMensagem('A gerar GIF (aguarda…)');
     await new Promise(r => setTimeout(r, 60));
 
-    // ── Dimensões fixas — enquadra o plano de desenho completo ──────────
-    const GW = 400, GH = 400, N = 36, DELAY = 4;
-    const FOV = 50;
+    const GW = 400, GH = 400, N = 36, DELAY = 4, FOV = 50;
 
-    // ── Guardar estado ──────────────────────────────────────────────────
-    const origW = renderer.domElement.width, origH = renderer.domElement.height;
-    const origBG = scene.background, origFog = scene.fog;
-    const origPos = camera.position.clone();
-    const origFov = camera.fov, origAspect = camera.aspect;
+    // ── Renderer offscreen dedicado com alpha real ───────────────────────
+    const offR = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    offR.setSize(GW, GH, false);
+    offR.setPixelRatio(1);
+    offR.setClearColor(0x000000, 0);   // fundo totalmente transparente
 
-    // ── Ocultar helpers ─────────────────────────────────────────────────
+    // ── Câmera dedicada ──────────────────────────────────────────────────
+    const gifCam = new THREE.PerspectiveCamera(FOV, 1, 0.1, 200);
+
+    // ── Ocultar helpers da scene ─────────────────────────────────────────
     gridHelper.visible = false; axesHelper.visible = false;
     layerHighlight.visible = false; ghostMesh.visible = false;
     pivotIndicator.visible = false;
+
+    const origBG  = scene.background;
+    const origFog = scene.fog;
+    scene.background = null;   // transparente — o offR usa o seu próprio clear
     scene.fog = null;
 
-    renderer.setSize(GW, GH, false);
-    camera.aspect = 1;
-    camera.fov = FOV;
-    camera.updateProjectionMatrix();
+    // ── Enquadrar o modelo (não a grelha inteira) ────────────────────────
+    const bounds = getModelBounds();
+    const center = bounds ? bounds.center.clone()
+        : new THREE.Vector3(GRID_SIZE/2, GRID_SIZE/4, GRID_SIZE/2);
+    const radius = bounds ? bounds.radius : 8;
+    const camDist = fitCamDist(radius, GW, GH, FOV) * 1.05;
+    const elevY   = center.y + radius * 0.5;
 
-    // ── Câmera enquadra o plano de desenho completo (grelha 16×16×16) ──
-    // Centro geométrico da grelha: (8, 4, 8) — ligeiramente baixo para ver a base
-    const gridCenter = new THREE.Vector3(GRID_SIZE/2, GRID_SIZE/4, GRID_SIZE/2);
-    // Raio que garante que toda a grelha 16×16×16 é visível a qualquer ângulo
-    const gridRadius = Math.sqrt(
-        (GRID_SIZE/2)**2 + (GRID_SIZE/4)**2 + (GRID_SIZE/2)**2
-    ) * 1.15;
-    const camDist = fitCamDist(gridRadius, GW, GH, FOV);
-    const elevY   = gridCenter.y + gridRadius * 0.45;
-
+    // ── Canvas 2D auxiliar para leitura de pixels ────────────────────────
     const cvs = document.createElement('canvas');
     cvs.width = GW; cvs.height = GH;
-    const ctx = cvs.getContext('2d');
+    const ctx = cvs.getContext('2d', { willReadFrequently: true });
 
-    // ── PASS 1 — Dual render por frame → máscara alfa ───────────────────
-    // Render em preto + branco → pixeis idênticos = modelo; diferentes = fundo/AA
-    const frameMasks  = [];
-    const frameColors = [];
-
+    // ── PASS 1 — Render e recolha de RGBA ────────────────────────────────
+    const rawFrames = [];   // Float32Array-like: RGBA por pixel
     for (let f = 0; f < N; f++) {
         const ang = (f / N) * Math.PI * 2;
-        camera.position.set(
-            gridCenter.x + Math.cos(ang) * camDist,
+        gifCam.position.set(
+            center.x + Math.cos(ang) * camDist,
             elevY,
-            gridCenter.z + Math.sin(ang) * camDist
+            center.z + Math.sin(ang) * camDist
         );
-        camera.lookAt(gridCenter);
-
-        // Render fundo preto
-        scene.background = new THREE.Color(0, 0, 0);
-        renderer.render(scene, camera);
-        ctx.drawImage(renderer.domElement, 0, 0);
-        const blackPx = ctx.getImageData(0, 0, GW, GH).data.slice();
-
-        // Render fundo branco
-        scene.background = new THREE.Color(1, 1, 1);
-        renderer.render(scene, camera);
-        ctx.drawImage(renderer.domElement, 0, 0);
-        const whitePx = ctx.getImageData(0, 0, GW, GH).data;
-
-        // Máscara: igual nas duas = modelo; diferente = fundo/AA
-        const mask = new Uint8Array(GW * GH);
-        for (let i = 0; i < GW * GH; i++) {
-            const d = Math.abs(blackPx[i*4] - whitePx[i*4])
-                    + Math.abs(blackPx[i*4+1] - whitePx[i*4+1])
-                    + Math.abs(blackPx[i*4+2] - whitePx[i*4+2]);
-            mask[i] = d < 20 ? 1 : 0;
-        }
-        frameMasks.push(mask);
-        frameColors.push(blackPx);
+        gifCam.lookAt(center);
+        offR.render(scene, gifCam);
+        ctx.clearRect(0, 0, GW, GH);
+        ctx.drawImage(offR.domElement, 0, 0);
+        rawFrames.push(ctx.getImageData(0, 0, GW, GH).data.slice());
         await new Promise(r => setTimeout(r, 0));
     }
 
-    // ── PASS 2 — Paleta adaptativa 256 cores (só pixeis de modelo) ──────
+    // ── Restaurar scene ──────────────────────────────────────────────────
+    scene.background = origBG;
+    scene.fog = origFog;
+    offR.dispose();
+    gridHelper.visible = true; axesHelper.visible = true;
+    layerHighlight.visible = true; pivotIndicator.visible = true;
+
+    // ── PASS 2 — Paleta adaptativa 256 cores (só pixeis opacos) ─────────
     const freqMap = new Map();
-    for (let fi = 0; fi < N; fi++) {
-        const mask = frameMasks[fi], col = frameColors[fi];
+    for (const data of rawFrames) {
         for (let i = 0; i < GW * GH; i += 3) {
-            if (mask[i]) {
-                const k = ((col[i*4]&0xF8)<<16)|((col[i*4+1]&0xF8)<<8)|(col[i*4+2]&0xF8);
+            if (data[i*4+3] > 32) {   // alfa > threshold = pixel de modelo
+                const k = ((data[i*4]&0xF8)<<16)|((data[i*4+1]&0xF8)<<8)|(data[i*4+2]&0xF8);
                 freqMap.set(k, (freqMap.get(k)||0)+1);
             }
         }
@@ -702,14 +685,14 @@ async function exportarGIF() {
         return best;
     }
 
-    // ── PASS 3 — Codificar GIF ───────────────────────────────────────────
+    // ── PASS 3 — Quantizar e codificar ───────────────────────────────────
     const enc = new GIFEncoder();
     const frames = [];
-    for (let fi = 0; fi < N; fi++) {
-        const mask = frameMasks[fi], col = frameColors[fi];
+    for (const data of rawFrames) {
         const pix = new Uint8Array(GW * GH);
         for (let i = 0; i < GW * GH; i++) {
-            if (mask[i]) pix[i] = qColor(col[i*4], col[i*4+1], col[i*4+2]);
+            if (data[i*4+3] > 32)
+                pix[i] = qColor(data[i*4], data[i*4+1], data[i*4+2]);
             // else: 0 = transparente
         }
         frames.push({ pixels: pix, delay: DELAY });
@@ -721,14 +704,6 @@ async function exportarGIF() {
     a.href = url; a.download = 'pixel3d_' + Date.now() + '.gif'; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
 
-    // ── Restaurar estado ─────────────────────────────────────────────────
-    renderer.setSize(origW, origH, false);
-    camera.fov = origFov; camera.aspect = origAspect;
-    camera.updateProjectionMatrix();
-    scene.background = origBG; scene.fog = origFog;
-    camera.position.copy(origPos); camera.lookAt(cameraTarget);
-    gridHelper.visible = true; axesHelper.visible = true;
-    layerHighlight.visible = true; pivotIndicator.visible = true;
     btn.disabled = false; btn.textContent = '🎞️ GIF';
     mostrarMensagem(`✓ GIF exportado! (${GW}×${GH}px, ${N} frames)`);
 }
