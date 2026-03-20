@@ -598,40 +598,33 @@ async function exportarGIF() {
 
     const GW = 400, GH = 400, N = 36, DELAY = 4, FOV = 50;
 
-    // ── Renderer offscreen dedicado com alpha real ───────────────────────
-    const offR = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    offR.setSize(GW, GH, false);
-    offR.setPixelRatio(1);
-    offR.setClearColor(0x000000, 0);   // fundo totalmente transparente
-
-    // ── Câmera dedicada ──────────────────────────────────────────────────
-    const gifCam = new THREE.PerspectiveCamera(FOV, 1, 0.1, 200);
-
-    // ── Ocultar helpers da scene ─────────────────────────────────────────
+    // ── Ocultar helpers ──────────────────────────────────────────────────
     gridHelper.visible = false; axesHelper.visible = false;
     layerHighlight.visible = false; ghostMesh.visible = false;
     pivotIndicator.visible = false;
-
-    const origBG  = scene.background;
-    const origFog = scene.fog;
-    scene.background = null;   // transparente — o offR usa o seu próprio clear
+    const origBG = scene.background, origFog = scene.fog;
+    scene.background = null;   // transparente
     scene.fog = null;
 
-    // ── Enquadrar o modelo (não a grelha inteira) ────────────────────────
-    const bounds = getModelBounds();
-    const center = bounds ? bounds.center.clone()
-        : new THREE.Vector3(GRID_SIZE/2, GRID_SIZE/4, GRID_SIZE/2);
-    const radius = bounds ? bounds.radius : 8;
+    // ── RenderTarget com canal alfa ──────────────────────────────────────
+    const rt = new THREE.WebGLRenderTarget(GW, GH, {
+        format: THREE.RGBAFormat,
+        type:   THREE.UnsignedByteType,
+    });
+
+    // ── Câmera dedicada centrada no modelo ───────────────────────────────
+    const gifCam = new THREE.PerspectiveCamera(FOV, 1, 0.1, 200);
+    const bounds  = getModelBounds();
+    const center  = bounds ? bounds.center.clone()
+                           : new THREE.Vector3(GRID_SIZE/2, GRID_SIZE/4, GRID_SIZE/2);
+    const radius  = bounds ? bounds.radius : 8;
     const camDist = fitCamDist(radius, GW, GH, FOV) * 1.05;
     const elevY   = center.y + radius * 0.5;
 
-    // ── Canvas 2D auxiliar para leitura de pixels ────────────────────────
-    const cvs = document.createElement('canvas');
-    cvs.width = GW; cvs.height = GH;
-    const ctx = cvs.getContext('2d', { willReadFrequently: true });
+    // ── PASS 1 — Render para RenderTarget + leitura directa GPU ─────────
+    const rawFrames = [];
+    const origRT = renderer.getRenderTarget();
 
-    // ── PASS 1 — Render e recolha de RGBA ────────────────────────────────
-    const rawFrames = [];   // Float32Array-like: RGBA por pixel
     for (let f = 0; f < N; f++) {
         const ang = (f / N) * Math.PI * 2;
         gifCam.position.set(
@@ -640,25 +633,40 @@ async function exportarGIF() {
             center.z + Math.sin(ang) * camDist
         );
         gifCam.lookAt(center);
-        offR.render(scene, gifCam);
-        ctx.clearRect(0, 0, GW, GH);
-        ctx.drawImage(offR.domElement, 0, 0);
-        rawFrames.push(ctx.getImageData(0, 0, GW, GH).data.slice());
+
+        renderer.setRenderTarget(rt);
+        renderer.setClearColor(0x000000, 0);   // clear totalmente transparente
+        renderer.clear();
+        renderer.render(scene, gifCam);
+
+        // Ler pixels da GPU — origem WebGL é canto inferior esquerdo
+        const buf = new Uint8Array(GW * GH * 4);
+        renderer.readRenderTargetPixels(rt, 0, 0, GW, GH, buf);
+
+        // Flip vertical (WebGL Y invertido vs imagem)
+        const flipped = new Uint8Array(GW * GH * 4);
+        for (let row = 0; row < GH; row++) {
+            const src = (GH - 1 - row) * GW * 4;
+            const dst = row * GW * 4;
+            flipped.set(buf.subarray(src, src + GW * 4), dst);
+        }
+        rawFrames.push(flipped);
         await new Promise(r => setTimeout(r, 0));
     }
 
-    // ── Restaurar scene ──────────────────────────────────────────────────
-    scene.background = origBG;
-    scene.fog = origFog;
-    offR.dispose();
+    // ── Restaurar renderer ───────────────────────────────────────────────
+    renderer.setRenderTarget(origRT);
+    renderer.setClearColor(0x0a0e27, 1);
+    rt.dispose();
+    scene.background = origBG; scene.fog = origFog;
     gridHelper.visible = true; axesHelper.visible = true;
     layerHighlight.visible = true; pivotIndicator.visible = true;
 
     // ── PASS 2 — Paleta adaptativa 256 cores (só pixeis opacos) ─────────
     const freqMap = new Map();
     for (const data of rawFrames) {
-        for (let i = 0; i < GW * GH; i += 3) {
-            if (data[i*4+3] > 32) {   // alfa > threshold = pixel de modelo
+        for (let i = 0; i < GW * GH; i += 4) {   // amostra 1 em 4 pixeis
+            if (data[i*4+3] > 16) {
                 const k = ((data[i*4]&0xF8)<<16)|((data[i*4+1]&0xF8)<<8)|(data[i*4+2]&0xF8);
                 freqMap.set(k, (freqMap.get(k)||0)+1);
             }
@@ -691,9 +699,9 @@ async function exportarGIF() {
     for (const data of rawFrames) {
         const pix = new Uint8Array(GW * GH);
         for (let i = 0; i < GW * GH; i++) {
-            if (data[i*4+3] > 32)
-                pix[i] = qColor(data[i*4], data[i*4+1], data[i*4+2]);
-            // else: 0 = transparente
+            pix[i] = data[i*4+3] > 16
+                ? qColor(data[i*4], data[i*4+1], data[i*4+2])
+                : 0;   // transparente
         }
         frames.push({ pixels: pix, delay: DELAY });
     }
