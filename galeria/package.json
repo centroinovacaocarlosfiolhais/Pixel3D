@@ -1,13 +1,13 @@
 {
-  "name": "pixel3d-galeria",
-  "version": "1.0.0",
-  "description": "Servidor da galeria Pixel3D — CICF",
-  "main": "server.js",
+  "name": "pixel3d",
+  "version": "2.4.0",
+  "description": "Pixel3D — Modelador Voxel · CICF",
+  "main": "galeria/server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node galeria/server.js"
   },
   "dependencies": {
-    "express": "^4.22.1",
+    "express": "^4.18.2",
     "multer": "^1.4.5-lts.1"
   }
 }
