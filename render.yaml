@@ -2,12 +2,11 @@ services:
   - type: web
     name: pixel3d-galeria
     runtime: node
-    rootDir: galeria
-    buildCommand: npm install
-    startCommand: node server.js
+    buildCommand: npm install --prefix galeria
+    startCommand: node galeria/server.js
     plan: free
     envVars:
       - key: UPLOAD_PASSWORD
-        sync: false          # Render vai pedir este valor manualmente (não fica no git!)
+        sync: false
       - key: NODE_ENV
         value: production
