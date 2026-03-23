@@ -283,7 +283,9 @@
             position: fixed;
             top: 18px; left: 20px;
             z-index: 30;
-            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
         }
         #brand h1 {
             font-size: 20px;
@@ -292,32 +294,31 @@
             color: var(--accent);
             text-shadow: 0 0 18px rgba(0,255,136,0.5);
             line-height: 1;
+            pointer-events: none;
         }
         #brand .version {
             font-size: 9px;
             color: var(--muted);
             letter-spacing: 0.06em;
-            margin-top: 2px;
+            pointer-events: none;
         }
 
-        /* ── Botão Galeria ── */
+        /* ── Botão Galeria — por baixo do logo ── */
         #gallery-link {
-            position: fixed;
-            top: 18px; left: 130px;
-            z-index: 30;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 5px;
-            padding: 5px 12px;
+            padding: 4px 10px;
             border-radius: 6px;
             border: 1px solid var(--border);
             background: rgba(0,255,136,0.07);
             color: var(--accent);
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 700;
             letter-spacing: 0.05em;
             text-decoration: none;
             transition: background 0.15s, border-color 0.15s;
+            align-self: flex-start;
         }
         #gallery-link:hover {
             background: rgba(0,255,136,0.16);
@@ -364,11 +365,8 @@
 <div id="brand">
     <h1>🧱 PIXEL3D</h1>
     <div class="version">v2.5 · Clube de Código · CICF</div>
+    <a href="/galeria" target="_blank" id="gallery-link">🎞️ Galeria</a>
 </div>
-
-<a href="/galeria" target="_blank" id="gallery-link" title="Abrir Galeria">
-    🎞️ Galeria
-</a>
 
 <button id="toggle-sidebar" onclick="toggleSidebar()">◀ Painel</button>
 
