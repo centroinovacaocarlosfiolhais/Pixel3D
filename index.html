@@ -299,6 +299,30 @@
             letter-spacing: 0.06em;
             margin-top: 2px;
         }
+
+        /* ── Botão Galeria ── */
+        #gallery-link {
+            position: fixed;
+            top: 18px; left: 130px;
+            z-index: 30;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: rgba(0,255,136,0.07);
+            color: var(--accent);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-decoration: none;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        #gallery-link:hover {
+            background: rgba(0,255,136,0.16);
+            border-color: var(--accent);
+        }
             position: fixed;
             bottom: 20px; left: 20px;
             background: var(--panel);
@@ -339,8 +363,12 @@
 
 <div id="brand">
     <h1>🧱 PIXEL3D</h1>
-    <div class="version">v2.0 · Clube de Código · CICF</div>
+    <div class="version">v2.5 · Clube de Código · CICF</div>
 </div>
+
+<a href="/galeria" target="_blank" id="gallery-link" title="Abrir Galeria">
+    🎞️ Galeria
+</a>
 
 <button id="toggle-sidebar" onclick="toggleSidebar()">◀ Painel</button>
 
