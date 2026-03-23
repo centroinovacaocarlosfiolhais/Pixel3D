@@ -278,14 +278,14 @@
         }
         .btn-danger:hover { background: rgba(255,0,77,0.12); }
 
-        /* ── BRAND — canto superior esquerdo (estilo Code3D) ── */
+        /* ── BRAND — canto superior esquerdo ── */
         #brand {
             position: fixed;
             top: 18px; left: 20px;
             z-index: 30;
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 5px;
         }
         #brand h1 {
             font-size: 20px;
@@ -302,28 +302,33 @@
             letter-spacing: 0.06em;
             pointer-events: none;
         }
-
-        /* ── Botão Galeria — por baixo do logo ── */
-        #gallery-link {
+        .brand-links {
+            display: flex;
+            gap: 5px;
+        }
+        .brand-link {
             display: inline-flex;
             align-items: center;
-            gap: 5px;
-            padding: 4px 10px;
+            gap: 4px;
+            padding: 4px 9px;
             border-radius: 6px;
             border: 1px solid var(--border);
             background: rgba(0,255,136,0.07);
             color: var(--accent);
             font-size: 10px;
             font-weight: 700;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.04em;
             text-decoration: none;
             transition: background 0.15s, border-color 0.15s;
-            align-self: flex-start;
+            white-space: nowrap;
         }
-        #gallery-link:hover {
-            background: rgba(0,255,136,0.16);
+        .brand-link:hover {
+            background: rgba(0,255,136,0.18);
             border-color: var(--accent);
         }
+
+        /* ── Info overlay ── */
+        #info {
             position: fixed;
             bottom: 20px; left: 20px;
             background: var(--panel);
@@ -337,6 +342,22 @@
             pointer-events: none;
         }
         #info strong { color: var(--accent); }
+
+        /* ── License footer in sidebar ── */
+        .sidebar-license {
+            margin-top: auto;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+            font-size: 8.5px;
+            color: var(--muted);
+            line-height: 1.7;
+            letter-spacing: 0.03em;
+        }
+        .sidebar-license a {
+            color: rgba(0,255,136,0.6);
+            text-decoration: none;
+        }
+        .sidebar-license a:hover { color: var(--accent); }
 
         /* Message toast */
         .message {
@@ -365,7 +386,10 @@
 <div id="brand">
     <h1>🧱 PIXEL3D</h1>
     <div class="version">v2.5 · Clube de Código · CICF</div>
-    <a href="/galeria" target="_blank" id="gallery-link">🎞️ Galeria</a>
+    <div class="brand-links">
+        <a href="/galeria" target="_blank" class="brand-link">🎞️ Galeria</a>
+        <a href="/visualizador_txt.html" target="_blank" class="brand-link">📄 Leitor TXT</a>
+    </div>
 </div>
 
 <button id="toggle-sidebar" onclick="toggleSidebar()">◀ Painel</button>
@@ -439,6 +463,15 @@
         <button class="rot-btn" style="width:100%;margin-top:6px" onclick="centrarPivot()" title="Move o ponto de pivot (⬤ amarelo) para o centro do modelo">🎯 Centrar Pivot no Modelo</button>
     </div>
 
+    <!-- Guardar / Carregar -->
+    <div>
+        <div class="section-title" style="margin-bottom:8px">Modelo</div>
+        <div class="export-grid">
+            <button class="exp-btn primary" onclick="guardarModelo()">💾 Guardar</button>
+            <button class="exp-btn" onclick="abrirModelo()">📂 Carregar</button>
+        </div>
+    </div>
+
     <!-- Export -->
     <div>
         <div class="section-title" style="margin-bottom:8px">Exportar</div>
@@ -453,7 +486,18 @@
 
     <!-- Clear -->
     <button class="btn-danger" onclick="if(confirm('Apagar tudo?')) limparTudo()">🗑️ Limpar tudo</button>
+
+    <!-- License -->
+    <div class="sidebar-license">
+        © 2025 <strong style="color:rgba(0,255,136,0.7)">David Marques</strong><br>
+        Vibe Coding com <a href="https://claude.ai" target="_blank">Claude.ai</a><br>
+        Centro de Inovação Carlos Fiolhais · CICF<br>
+        <a href="https://github.com/centroinovacaocarlosfiolhais/Pixel3D/blob/main/LICENSE" target="_blank">MIT License</a>
+        · Open Source
+    </div>
 </div>
+
+<input type="file" id="json-file-input" accept=".json,application/json" style="display:none" onchange="lerFicheiroModelo(event)">
 
 <div id="info">
     <strong>🖱 Esq:</strong> Adicionar / Apagar bloco<br>

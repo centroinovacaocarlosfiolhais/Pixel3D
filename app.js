@@ -940,6 +940,53 @@ async function exportarFicha() {
 
 // (função exportarFicha HTML removida — substituída pela versão jsPDF acima)
 
+// ── Guardar / Carregar modelo (JSON) ──────────────────────────
+function guardarModelo() {
+    const data = {
+        versao: '2.5',
+        nome: 'Pixel3D',
+        data: new Date().toISOString(),
+        blocos: Object.keys(voxelMeshes).map(k => {
+            const [x, y, z] = k.split(',').map(Number);
+            return { x, y, z, c: grid[x][y][z] };
+        })
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'pixel3d_modelo_' + Date.now() + '.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    mostrarMensagem('💾 Modelo guardado!');
+}
+
+function abrirModelo() {
+    document.getElementById('json-file-input').click();
+}
+
+function lerFicheiroModelo(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+        try {
+            const data = JSON.parse(ev.target.result);
+            if (!data.blocos || !Array.isArray(data.blocos))
+                throw new Error('Formato inválido');
+            // Limpar cena actual
+            Object.values(voxelMeshes).forEach(m => voxelGroup.remove(m));
+            voxelMeshes = {}; resetGrid(); atualizarEstatisticas();
+            // Carregar blocos
+            data.blocos.forEach(b => adicionarVoxel(b.x, b.y, b.z, b.c));
+            mostrarMensagem(`✓ Modelo carregado! (${data.blocos.length} blocos)`);
+        } catch (err) {
+            mostrarMensagem('Erro ao carregar: ' + err.message, true);
+        }
+    };
+    reader.readAsText(file);
+    e.target.value = '';   // reset para permitir carregar o mesmo ficheiro
+}
+
 function exportarTXT() {
     const SYMS = ['·','N','P','V','C','Z','S','B','R','L','A','M','U','I','O','E'];
     const total = Object.keys(voxelMeshes).length;
